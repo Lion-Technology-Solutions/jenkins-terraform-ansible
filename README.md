@@ -29,8 +29,8 @@ This project creates a Jenkins controller on AWS in its own VPC, then configures
 - AWS credentials configured locally
 - Terraform installed locally
 - Ansible installed on the machine where you run the playbook
-- Existing AWS key pair named `rancher0509` in `us-east-1`
-- Matching private key available locally, for example `~/.ssh/rancher0509.pem`
+- Existing AWS key pair named `rancher0529` in `us-east-1`
+- Matching private key available locally, for example `~/.ssh/rancher0529.pem`
 
 ## Deploy
 

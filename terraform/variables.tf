@@ -19,13 +19,13 @@ variable "aws_region" {
 variable "key_name" {
   description = "Existing AWS EC2 key pair name."
   type        = string
-  default     = "rancher0509"
+  default     = "rancher0529"
 }
 
 variable "ssh_private_key_path" {
   description = "Private key path that Terraform writes into the generated Ansible inventory."
   type        = string
-  default     = "~/.ssh/rancher0509.pem"
+  default     = "~/.ssh/rancher0529.pem"
 }
 
 variable "instance_type" {
