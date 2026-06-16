@@ -490,9 +490,12 @@
           delay: 10
           until: jenkins_installed_plugins_result.rc == 0
 
-        - name: Calculate missing Jenkins plugins
+        - name: Parse installed Jenkins plugins
           ansible.builtin.set_fact:
             installed_jenkins_plugins: "{{ jenkins_installed_plugins_result.stdout_lines | map('regex_replace', '^([^ ]+).*', '\\1') | list }}"
+
+        - name: Calculate missing Jenkins plugins
+          ansible.builtin.set_fact:
             missing_jenkins_plugins: "{{ jenkins_plugins | difference(installed_jenkins_plugins) }}"
 
         - name: Install missing Jenkins plugins with dependencies
