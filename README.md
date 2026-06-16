@@ -14,7 +14,7 @@ This project creates a Jenkins controller on AWS in its own VPC, then configures
 
 ## What Ansible Installs
 
-- Jenkins LTS
+- Jenkins LTS from the official Jenkins WAR artifact
 - Java 21
 - Docker Engine and Docker Compose plugin
 - AWS CLI v2

@@ -76,28 +76,15 @@
           Signed-By: /etc/apt/keyrings/docker.asc
       register: docker_repo
 
-    - name: Download Jenkins APT signing key
-      ansible.builtin.get_url:
-        url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
-        dest: /etc/apt/keyrings/jenkins-keyring.asc
-        mode: "0644"
-        force: true
-
-    - name: Remove old Jenkins APT keyring remnants
+    - name: Remove Jenkins APT repository and keyring remnants
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
       loop:
+        - /etc/apt/sources.list.d/jenkins.list
+        - /etc/apt/keyrings/jenkins-keyring.asc
         - /usr/share/keyrings/jenkins-keyring.gpg
         - /tmp/jenkins.asc
-
-    - name: Configure Jenkins LTS APT repository
-      ansible.builtin.copy:
-        dest: /etc/apt/sources.list.d/jenkins.list
-        mode: "0644"
-        content: |
-          deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/
-      register: jenkins_repo
 
     - name: Download HashiCorp GPG key
       ansible.builtin.get_url:
@@ -157,18 +144,17 @@
       delay: 30
       until: core_package_install is succeeded
 
-    - name: Install Jenkins package with mirror retries
+    - name: Remove Jenkins Debian package if present
       ansible.builtin.apt:
         name: jenkins
-        state: present
-        update_cache: true
-        cache_valid_time: 0
+        state: absent
+        purge: false
         force_apt_get: true
         lock_timeout: 300
-      register: jenkins_package_install
-      retries: 8
-      delay: 60
-      until: jenkins_package_install is succeeded
+      register: jenkins_deb_package_absent
+      retries: 3
+      delay: 20
+      until: jenkins_deb_package_absent is succeeded
 
     - name: Verify Java 21 runtime exists
       ansible.builtin.stat:
@@ -195,6 +181,77 @@
           - java
           - "{{ jenkins_java_home }}/bin/java"
       when: current_java_alternative.stdout != jenkins_java_home + "/bin/java"
+
+    - name: Create Jenkins group
+      ansible.builtin.group:
+        name: jenkins
+        system: true
+        state: present
+
+    - name: Create Jenkins user
+      ansible.builtin.user:
+        name: jenkins
+        group: jenkins
+        home: "{{ jenkins_home }}"
+        shell: /usr/sbin/nologin
+        system: true
+        create_home: true
+        state: present
+
+    - name: Create Jenkins runtime directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - path: "{{ jenkins_install_dir }}"
+          owner: root
+          group: root
+          mode: "0755"
+        - path: "{{ jenkins_home }}"
+          owner: jenkins
+          group: jenkins
+          mode: "0750"
+        - path: "{{ jenkins_cache_dir }}"
+          owner: jenkins
+          group: jenkins
+          mode: "0750"
+        - path: "{{ jenkins_log_dir }}"
+          owner: jenkins
+          group: jenkins
+          mode: "0750"
+
+    - name: Download Jenkins WAR
+      block:
+        - name: Download Jenkins WAR from artifact repository
+          ansible.builtin.get_url:
+            url: "{{ jenkins_war_url }}"
+            dest: "{{ jenkins_war_path }}"
+            owner: root
+            group: root
+            mode: "0644"
+            timeout: 60
+          register: jenkins_war_download
+          retries: 5
+          delay: 30
+          until: jenkins_war_download is succeeded
+          notify: Restart Jenkins
+      rescue:
+        - name: Download Jenkins WAR from update center fallback
+          ansible.builtin.get_url:
+            url: "{{ jenkins_war_fallback_url }}"
+            dest: "{{ jenkins_war_path }}"
+            owner: root
+            group: root
+            mode: "0644"
+            timeout: 60
+          register: jenkins_war_fallback_download
+          retries: 5
+          delay: 30
+          until: jenkins_war_fallback_download is succeeded
+          notify: Restart Jenkins
 
     - name: Check Helm version
       ansible.builtin.command:
@@ -279,16 +336,15 @@
         state: stopped
       failed_when: false
 
-    - name: Create Jenkins systemd override directory
+    - name: Remove legacy Jenkins packaged service override
       ansible.builtin.file:
-        path: /etc/systemd/system/jenkins.service.d
-        state: directory
-        mode: "0755"
+        path: /etc/systemd/system/jenkins.service.d/override.conf
+        state: absent
 
-    - name: Configure Jenkins service environment
+    - name: Configure Jenkins systemd service
       ansible.builtin.template:
-        src: jenkins-override.conf.j2
-        dest: /etc/systemd/system/jenkins.service.d/override.conf
+        src: jenkins.service.j2
+        dest: /etc/systemd/system/jenkins.service
         owner: root
         group: root
         mode: "0644"
@@ -296,7 +352,7 @@
 
     - name: Create Jenkins init directory
       ansible.builtin.file:
-        path: /var/lib/jenkins/init.groovy.d
+        path: "{{ jenkins_home }}/init.groovy.d"
         state: directory
         owner: jenkins
         group: jenkins
@@ -305,7 +361,7 @@
     - name: Configure Jenkins security bootstrap script
       ansible.builtin.template:
         src: 01-basic-security.groovy.j2
-        dest: /var/lib/jenkins/init.groovy.d/01-basic-security.groovy
+        dest: "{{ jenkins_home }}/init.groovy.d/01-basic-security.groovy"
         owner: jenkins
         group: jenkins
         mode: "0600"
@@ -373,12 +429,12 @@
 
     - name: Remove Jenkins bootstrap script containing admin password
       ansible.builtin.file:
-        path: /var/lib/jenkins/init.groovy.d/01-basic-security.groovy
+        path: "{{ jenkins_home }}/init.groovy.d/01-basic-security.groovy"
         state: absent
 
     - name: Remove legacy Jenkins bootstrap marker
       ansible.builtin.file:
-        path: /var/lib/jenkins/.codex-bootstrap-complete
+        path: "{{ jenkins_home }}/.codex-bootstrap-complete"
         state: absent
 
     - name: Download Jenkins CLI jar
