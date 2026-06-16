@@ -51,26 +51,29 @@
     - name: Download Docker GPG key
       ansible.builtin.get_url:
         url: https://download.docker.com/linux/ubuntu/gpg
-        dest: /tmp/docker.asc
+        dest: /etc/apt/keyrings/docker.asc
         mode: "0644"
-      register: docker_gpg_key
 
-    - name: Check Docker keyring
-      ansible.builtin.stat:
-        path: /etc/apt/keyrings/docker.gpg
-      register: docker_keyring
-
-    - name: Install Docker GPG keyring
-      ansible.builtin.command:
-        cmd: gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg /tmp/docker.asc
-      when: docker_gpg_key.changed or not docker_keyring.stat.exists
+    - name: Remove old Docker APT repository and keyring remnants
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/docker.list
+        - /etc/apt/keyrings/docker.gpg
+        - /tmp/docker.asc
 
     - name: Configure Docker APT repository
       ansible.builtin.copy:
-        dest: /etc/apt/sources.list.d/docker.list
+        dest: /etc/apt/sources.list.d/docker.sources
         mode: "0644"
         content: |
-          deb [arch={{ deb_arch.stdout }} signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+          Types: deb
+          URIs: https://download.docker.com/linux/ubuntu
+          Suites: {{ ansible_distribution_release }}
+          Components: stable
+          Architectures: {{ deb_arch.stdout }}
+          Signed-By: /etc/apt/keyrings/docker.asc
       register: docker_repo
 
     - name: Download Jenkins GPG key
@@ -132,10 +135,10 @@
         - /usr/share/keyrings/helm.gpg
         - /tmp/helm.asc
 
-    - name: Update APT cache after adding repositories
+    - name: Refresh APT cache after repository configuration
       ansible.builtin.apt:
         update_cache: true
-      when: docker_repo.changed or jenkins_repo.changed or hashicorp_repo.changed
+        cache_valid_time: 0
 
     - name: Install Jenkins, Docker, Terraform, and Ansible packages
       ansible.builtin.apt:
