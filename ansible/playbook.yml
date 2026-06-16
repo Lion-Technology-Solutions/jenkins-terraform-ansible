@@ -284,11 +284,6 @@
         group: jenkins
         mode: "0750"
 
-    - name: Check Jenkins bootstrap marker
-      ansible.builtin.stat:
-        path: /var/lib/jenkins/.codex-bootstrap-complete
-      register: jenkins_bootstrap_marker
-
     - name: Configure Jenkins security bootstrap script
       ansible.builtin.template:
         src: 01-basic-security.groovy.j2
@@ -296,7 +291,6 @@
         owner: jenkins
         group: jenkins
         mode: "0600"
-      when: not jenkins_bootstrap_marker.stat.exists
       no_log: true
       notify: Restart Jenkins
 
@@ -364,13 +358,10 @@
         path: /var/lib/jenkins/init.groovy.d/01-basic-security.groovy
         state: absent
 
-    - name: Mark Jenkins bootstrap complete
+    - name: Remove legacy Jenkins bootstrap marker
       ansible.builtin.file:
         path: /var/lib/jenkins/.codex-bootstrap-complete
-        state: touch
-        owner: jenkins
-        group: jenkins
-        mode: "0600"
+        state: absent
 
     - name: Download Jenkins CLI jar
       ansible.builtin.get_url:
@@ -378,32 +369,72 @@
         dest: "{{ jenkins_cli_jar }}"
         mode: "0644"
 
-    - name: Read installed Jenkins plugins
-      ansible.builtin.command:
-        argv:
-          - java
-          - -jar
-          - "{{ jenkins_cli_jar }}"
-          - -s
-          - "{{ jenkins_controller_url }}/"
-          - -auth
-          - "{{ jenkins_admin_user }}:{{ jenkins_admin_password }}"
-          - list-plugins
-      register: jenkins_installed_plugins_result
-      changed_when: false
-      no_log: true
+    - name: Manage Jenkins plugins with CLI
+      block:
+        - name: Write Jenkins CLI auth file
+          ansible.builtin.copy:
+            dest: /root/.jenkins-cli-auth
+            content: "{{ jenkins_admin_user }}:{{ jenkins_admin_password }}"
+            owner: root
+            group: root
+            mode: "0600"
+          no_log: true
 
-    - name: Calculate missing Jenkins plugins
-      ansible.builtin.set_fact:
-        installed_jenkins_plugins: "{{ jenkins_installed_plugins_result.stdout_lines | map('regex_replace', '^([^ ]+).*', '\\1') | list }}"
-        missing_jenkins_plugins: "{{ jenkins_plugins | difference(installed_jenkins_plugins) }}"
+        - name: Verify Jenkins CLI authentication
+          ansible.builtin.command:
+            argv:
+              - java
+              - -jar
+              - "{{ jenkins_cli_jar }}"
+              - -s
+              - "{{ jenkins_controller_url }}/"
+              - -auth
+              - "@/root/.jenkins-cli-auth"
+              - -http
+              - who-am-i
+          register: jenkins_cli_auth_check
+          changed_when: false
+          retries: 30
+          delay: 10
+          until: jenkins_cli_auth_check.rc == 0
 
-    - name: Install missing Jenkins plugins with dependencies
-      ansible.builtin.command:
-        argv: "{{ ['java', '-jar', jenkins_cli_jar, '-s', jenkins_controller_url + '/', '-auth', jenkins_admin_user + ':' + jenkins_admin_password, 'install-plugin'] + missing_jenkins_plugins + ['-deploy'] }}"
-      when: missing_jenkins_plugins | length > 0
-      no_log: true
-      notify: Restart Jenkins
+        - name: Read installed Jenkins plugins
+          ansible.builtin.command:
+            argv:
+              - java
+              - -jar
+              - "{{ jenkins_cli_jar }}"
+              - -s
+              - "{{ jenkins_controller_url }}/"
+              - -auth
+              - "@/root/.jenkins-cli-auth"
+              - -http
+              - list-plugins
+          register: jenkins_installed_plugins_result
+          changed_when: false
+          retries: 12
+          delay: 10
+          until: jenkins_installed_plugins_result.rc == 0
+
+        - name: Calculate missing Jenkins plugins
+          ansible.builtin.set_fact:
+            installed_jenkins_plugins: "{{ jenkins_installed_plugins_result.stdout_lines | map('regex_replace', '^([^ ]+).*', '\\1') | list }}"
+            missing_jenkins_plugins: "{{ jenkins_plugins | difference(installed_jenkins_plugins) }}"
+
+        - name: Install missing Jenkins plugins with dependencies
+          ansible.builtin.command:
+            argv: "{{ ['java', '-jar', jenkins_cli_jar, '-s', jenkins_controller_url + '/', '-auth', '@/root/.jenkins-cli-auth', '-http', 'install-plugin'] + missing_jenkins_plugins + ['-deploy'] }}"
+          register: jenkins_plugin_install_result
+          when: missing_jenkins_plugins | length > 0
+          retries: 3
+          delay: 20
+          until: jenkins_plugin_install_result.rc == 0
+          notify: Restart Jenkins
+      always:
+        - name: Remove Jenkins CLI auth file
+          ansible.builtin.file:
+            path: /root/.jenkins-cli-auth
+            state: absent
 
     - name: Flush Jenkins plugin restart handler
       ansible.builtin.meta: flush_handlers

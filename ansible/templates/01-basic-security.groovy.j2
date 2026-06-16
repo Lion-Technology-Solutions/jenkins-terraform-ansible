@@ -3,6 +3,7 @@ import jenkins.model.JenkinsLocationConfiguration
 import hudson.security.HudsonPrivateSecurityRealm
 import hudson.security.FullControlOnceLoggedInAuthorizationStrategy
 import hudson.security.csrf.DefaultCrumbIssuer
+import hudson.model.User
 
 def instance = Jenkins.get()
 def adminUser = {{ jenkins_admin_user | to_json }}
@@ -12,8 +13,17 @@ def adminEmail = {{ jenkins_admin_email | to_json }}
 
 def currentRealm = instance.getSecurityRealm()
 def realm = currentRealm instanceof HudsonPrivateSecurityRealm ? currentRealm : new HudsonPrivateSecurityRealm(false)
-if (realm.getUser(adminUser) == null) {
+
+def user = User.getById(adminUser, false)
+if (user == null || user.getProperty(HudsonPrivateSecurityRealm.Details.class) == null) {
   realm.createAccount(adminUser, adminPassword)
+  user = User.getById(adminUser, false)
+}
+
+def passwordDetails = user?.getProperty(HudsonPrivateSecurityRealm.Details.class)
+if (passwordDetails != null) {
+  passwordDetails.updatePassword(adminPassword)
+  user.save()
 }
 instance.setSecurityRealm(realm)
 
