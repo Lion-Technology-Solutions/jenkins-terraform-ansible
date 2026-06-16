@@ -1,3 +1,5 @@
 [Service]
+Environment="JAVA_HOME={{ jenkins_java_home }}"
+Environment="PATH={{ jenkins_java_home }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 Environment="JAVA_OPTS={{ jenkins_java_opts | join(' ') }}"
 Environment="JENKINS_PORT={{ jenkins_http_port }}"

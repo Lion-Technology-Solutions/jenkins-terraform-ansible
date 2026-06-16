@@ -152,6 +152,32 @@
           - terraform
         state: present
 
+    - name: Verify Java 21 runtime exists
+      ansible.builtin.stat:
+        path: "{{ jenkins_java_home }}/bin/java"
+      register: jenkins_java_runtime
+
+    - name: Require Java 21 runtime for Jenkins
+      ansible.builtin.assert:
+        that:
+          - jenkins_java_runtime.stat.exists
+        fail_msg: "Java 21 runtime was not found at {{ jenkins_java_home }}/bin/java. Jenkins cannot start without a supported Java runtime."
+
+    - name: Read current system Java alternative
+      ansible.builtin.command:
+        cmd: readlink -f /usr/bin/java
+      register: current_java_alternative
+      changed_when: false
+
+    - name: Set Java 21 as the default runtime
+      ansible.builtin.command:
+        argv:
+          - update-alternatives
+          - --set
+          - java
+          - "{{ jenkins_java_home }}/bin/java"
+      when: current_java_alternative.stdout != jenkins_java_home + "/bin/java"
+
     - name: Check Helm version
       ansible.builtin.command:
         cmd: /usr/local/bin/helm version --short --client
@@ -275,11 +301,48 @@
       notify: Restart Jenkins
 
     - name: Ensure Jenkins is enabled and started
-      ansible.builtin.systemd:
-        name: jenkins
-        enabled: true
-        state: started
-        daemon_reload: true
+      block:
+        - name: Start Jenkins service
+          ansible.builtin.systemd:
+            name: jenkins
+            enabled: true
+            state: started
+            daemon_reload: true
+      rescue:
+        - name: Read Java version after Jenkins startup failure
+          ansible.builtin.command:
+            cmd: java -version
+          register: jenkins_failure_java_version
+          changed_when: false
+          failed_when: false
+
+        - name: Read Jenkins service status after startup failure
+          ansible.builtin.command:
+            cmd: systemctl status jenkins.service --no-pager -l
+          register: jenkins_failure_status
+          changed_when: false
+          failed_when: false
+
+        - name: Read Jenkins journal after startup failure
+          ansible.builtin.command:
+            cmd: journalctl -u jenkins.service --no-pager -n 120
+          register: jenkins_failure_journal
+          changed_when: false
+          failed_when: false
+
+        - name: Fail with Jenkins startup diagnostics
+          ansible.builtin.fail:
+            msg: |
+              Jenkins failed to start.
+
+              Java version:
+              {{ jenkins_failure_java_version.stderr | default(jenkins_failure_java_version.stdout, true) }}
+
+              systemctl status jenkins.service:
+              {{ jenkins_failure_status.stdout | default(jenkins_failure_status.stderr, true) }}
+
+              journalctl -u jenkins.service -n 120:
+              {{ jenkins_failure_journal.stdout | default(jenkins_failure_journal.stderr, true) }}
 
     - name: Flush Jenkins restart handlers
       ansible.builtin.meta: flush_handlers

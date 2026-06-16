@@ -2,6 +2,7 @@
 jenkins_http_port: 8080
 jenkins_controller_url: "http://127.0.0.1:{{ jenkins_http_port }}"
 jenkins_public_url_default: "http://{{ ansible_host }}:{{ jenkins_http_port }}/"
+jenkins_java_home: /usr/lib/jvm/java-21-openjdk-amd64
 jenkins_admin_user: admin
 jenkins_admin_password: "{{ lookup('ansible.builtin.env', 'JENKINS_ADMIN_PASSWORD') | default('', true) }}"
 jenkins_admin_email: "admin@example.com"
