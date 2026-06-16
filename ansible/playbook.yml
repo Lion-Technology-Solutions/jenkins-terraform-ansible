@@ -76,29 +76,27 @@
           Signed-By: /etc/apt/keyrings/docker.asc
       register: docker_repo
 
-    - name: Download Jenkins GPG key
+    - name: Download Jenkins APT signing key
       ansible.builtin.get_url:
-        url: https://pkg.jenkins.io/debian-stable/jenkins.io-2023.key
-        dest: /tmp/jenkins.asc
+        url: https://pkg.jenkins.io/debian-stable/jenkins.io-2026.key
+        dest: /etc/apt/keyrings/jenkins-keyring.asc
         mode: "0644"
-      register: jenkins_gpg_key
+        force: true
 
-    - name: Check Jenkins keyring
-      ansible.builtin.stat:
-        path: /usr/share/keyrings/jenkins-keyring.gpg
-      register: jenkins_keyring
-
-    - name: Install Jenkins GPG keyring
-      ansible.builtin.command:
-        cmd: gpg --dearmor --yes -o /usr/share/keyrings/jenkins-keyring.gpg /tmp/jenkins.asc
-      when: jenkins_gpg_key.changed or not jenkins_keyring.stat.exists
+    - name: Remove old Jenkins APT keyring remnants
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /usr/share/keyrings/jenkins-keyring.gpg
+        - /tmp/jenkins.asc
 
     - name: Configure Jenkins LTS APT repository
       ansible.builtin.copy:
         dest: /etc/apt/sources.list.d/jenkins.list
         mode: "0644"
         content: |
-          deb [signed-by=/usr/share/keyrings/jenkins-keyring.gpg] https://pkg.jenkins.io/debian-stable binary/
+          deb [signed-by=/etc/apt/keyrings/jenkins-keyring.asc] https://pkg.jenkins.io/debian-stable binary/
       register: jenkins_repo
 
     - name: Download HashiCorp GPG key
@@ -150,7 +148,7 @@
           - docker-ce-cli
           - docker-compose-plugin
           - jenkins
-          - openjdk-17-jre
+          - openjdk-21-jre
           - terraform
         state: present
 
