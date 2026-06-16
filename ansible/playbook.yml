@@ -138,7 +138,7 @@
         update_cache: true
         cache_valid_time: 0
 
-    - name: Install Jenkins, Docker, Terraform, and Ansible packages
+    - name: Install Docker, Terraform, Ansible, and Java packages
       ansible.builtin.apt:
         name:
           - ansible
@@ -147,10 +147,28 @@
           - docker-ce
           - docker-ce-cli
           - docker-compose-plugin
-          - jenkins
           - openjdk-21-jre
           - terraform
         state: present
+        force_apt_get: true
+        lock_timeout: 300
+      register: core_package_install
+      retries: 5
+      delay: 30
+      until: core_package_install is succeeded
+
+    - name: Install Jenkins package with mirror retries
+      ansible.builtin.apt:
+        name: jenkins
+        state: present
+        update_cache: true
+        cache_valid_time: 0
+        force_apt_get: true
+        lock_timeout: 300
+      register: jenkins_package_install
+      retries: 8
+      delay: 60
+      until: jenkins_package_install is succeeded
 
     - name: Verify Java 21 runtime exists
       ansible.builtin.stat:
