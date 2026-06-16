@@ -123,53 +123,21 @@
           deb [arch={{ deb_arch.stdout }} signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main
       register: hashicorp_repo
 
-    - name: Download Helm GPG key
-      ansible.builtin.get_url:
-        url: https://packages.buildkite.com/helm-linux/helm-debian/gpgkey
-        dest: /tmp/helm.asc
-        mode: "0644"
-      register: helm_gpg_key
-
-    - name: Verify Helm GPG key fingerprint
-      ansible.builtin.command:
-        argv:
-          - gpg
-          - --show-keys
-          - --with-colons
-          - /tmp/helm.asc
-      register: helm_gpg_fingerprint
-      changed_when: false
-
-    - name: Assert Helm GPG key fingerprint is trusted
-      ansible.builtin.assert:
-        that:
-          - "'DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6' in helm_gpg_fingerprint.stdout"
-        fail_msg: "Unexpected Helm APT signing key fingerprint. Refusing to configure the Helm repository."
-
-    - name: Check Helm keyring
-      ansible.builtin.stat:
-        path: /usr/share/keyrings/helm.gpg
-      register: helm_keyring
-
-    - name: Install Helm GPG keyring
-      ansible.builtin.command:
-        cmd: gpg --dearmor --yes -o /usr/share/keyrings/helm.gpg /tmp/helm.asc
-      when: helm_gpg_key.changed or not helm_keyring.stat.exists
-
-    - name: Configure Helm APT repository
-      ansible.builtin.copy:
-        dest: /etc/apt/sources.list.d/helm-stable-debian.list
-        mode: "0644"
-        content: |
-          deb [signed-by=/usr/share/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main
-      register: helm_repo
+    - name: Remove Helm APT repository and keyring remnants
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/apt/sources.list.d/helm-stable-debian.list
+        - /usr/share/keyrings/helm.gpg
+        - /tmp/helm.asc
 
     - name: Update APT cache after adding repositories
       ansible.builtin.apt:
         update_cache: true
-      when: docker_repo.changed or jenkins_repo.changed or hashicorp_repo.changed or helm_repo.changed
+      when: docker_repo.changed or jenkins_repo.changed or hashicorp_repo.changed
 
-    - name: Install Jenkins, Docker, Terraform, Ansible, and Helm packages
+    - name: Install Jenkins, Docker, Terraform, and Ansible packages
       ansible.builtin.apt:
         name:
           - ansible
@@ -178,11 +146,41 @@
           - docker-ce
           - docker-ce-cli
           - docker-compose-plugin
-          - helm
           - jenkins
           - openjdk-17-jre
           - terraform
         state: present
+
+    - name: Check Helm version
+      ansible.builtin.command:
+        cmd: /usr/local/bin/helm version --short --client
+      register: helm_version_check
+      failed_when: false
+      changed_when: false
+
+    - name: Download Helm binary archive
+      ansible.builtin.get_url:
+        url: "https://get.helm.sh/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        dest: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        mode: "0644"
+      when: helm_version_check.rc != 0 or helm_version not in helm_version_check.stdout
+
+    - name: Extract Helm binary archive
+      ansible.builtin.unarchive:
+        src: "/tmp/helm-{{ helm_version }}-linux-amd64.tar.gz"
+        dest: /tmp
+        remote_src: true
+      when: helm_version_check.rc != 0 or helm_version not in helm_version_check.stdout
+
+    - name: Install Helm binary
+      ansible.builtin.copy:
+        src: /tmp/linux-amd64/helm
+        dest: /usr/local/bin/helm
+        owner: root
+        group: root
+        mode: "0755"
+        remote_src: true
+      when: helm_version_check.rc != 0 or helm_version not in helm_version_check.stdout
 
     - name: Install kubectl
       ansible.builtin.get_url:

@@ -17,6 +17,7 @@ docker_users:
   - jenkins
 
 kubectl_version: "v1.30.6"
+helm_version: "v3.15.4"
 aws_cli_force_reinstall: false
 
 jenkins_plugins:
