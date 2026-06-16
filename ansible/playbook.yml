@@ -125,10 +125,26 @@
 
     - name: Download Helm GPG key
       ansible.builtin.get_url:
-        url: https://baltocdn.com/helm/signing.asc
+        url: https://packages.buildkite.com/helm-linux/helm-debian/gpgkey
         dest: /tmp/helm.asc
         mode: "0644"
       register: helm_gpg_key
+
+    - name: Verify Helm GPG key fingerprint
+      ansible.builtin.command:
+        argv:
+          - gpg
+          - --show-keys
+          - --with-colons
+          - /tmp/helm.asc
+      register: helm_gpg_fingerprint
+      changed_when: false
+
+    - name: Assert Helm GPG key fingerprint is trusted
+      ansible.builtin.assert:
+        that:
+          - "'DDF78C3E6EBB2D2CC223C95C62BA89D07698DBC6' in helm_gpg_fingerprint.stdout"
+        fail_msg: "Unexpected Helm APT signing key fingerprint. Refusing to configure the Helm repository."
 
     - name: Check Helm keyring
       ansible.builtin.stat:
@@ -145,7 +161,7 @@
         dest: /etc/apt/sources.list.d/helm-stable-debian.list
         mode: "0644"
         content: |
-          deb [arch={{ deb_arch.stdout }} signed-by=/usr/share/keyrings/helm.gpg] https://baltocdn.com/helm/stable/debian/ all main
+          deb [signed-by=/usr/share/keyrings/helm.gpg] https://packages.buildkite.com/helm-linux/helm-debian/any/ any main
       register: helm_repo
 
     - name: Update APT cache after adding repositories
