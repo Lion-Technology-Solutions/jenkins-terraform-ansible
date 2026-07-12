@@ -95,3 +95,12 @@ After deployment, Terraform prints the Jenkins URL and the exact Ansible command
 cd terraform
 terraform destroy
 ```
+
+## Jenkins Pipelines
+
+Two declarative pipelines are included at the repository root:
+
+- `Jenkinsfile.terraform` runs parameterized AWS Terraform `init`, `plan`, `apply`, or `destroy` workflows. Configure an AWS Credentials credential in Jenkins (default ID: `aws-credentials`). Apply and destroy require their corresponding confirmation parameters.
+- `Jenkinsfile.ansible` runs Ansible syntax-check, check mode, or apply. Configure an SSH Username with private key credential (default ID: `jenkins-ssh-key`) and a Secret text credential containing the Jenkins admin password (default ID: `jenkins-admin-password`).
+
+Create one Jenkins Pipeline job for each file and set **Pipeline script from SCM** to the matching script path. The Jenkins agent needs Terraform and Ansible installed; the provisioned Jenkins controller already includes both tools.
