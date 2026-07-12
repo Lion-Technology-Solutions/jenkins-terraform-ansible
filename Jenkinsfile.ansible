@@ -1,0 +1,77 @@
+pipeline {
+  agent any
+
+  options {
+    disableConcurrentBuilds()
+    timestamps()
+  }
+
+  parameters {
+    choice(name: 'ANSIBLE_ACTION', choices: ['syntax-check', 'check', 'apply'], description: 'Validate, dry-run, or apply the Jenkins configuration.')
+    string(name: 'INVENTORY_FILE', defaultValue: 'inventory/hosts.ini', description: 'Inventory path relative to ansible/.')
+    string(name: 'PLAYBOOK_FILE', defaultValue: 'playbook.yml', description: 'Playbook path relative to ansible/.')
+    string(name: 'LIMIT', defaultValue: 'jenkins', description: 'Ansible host/group limit.')
+    string(name: 'TAGS', defaultValue: '', description: 'Optional comma-separated Ansible tags.')
+    credentials(name: 'SSH_CREDENTIALS_ID', defaultValue: 'jenkins-ssh-key', credentialType: 'com.cloudbees.jenkins.plugins.sshcredentials.impl.BasicSSHUserPrivateKey', description: 'SSH private-key credential for the target host.', required: true)
+    credentials(name: 'JENKINS_ADMIN_PASSWORD_ID', defaultValue: 'jenkins-admin-password', credentialType: 'org.jenkinsci.plugins.plaincredentials.impl.StringCredentialsImpl', description: 'Secret-text credential containing the Jenkins admin password.', required: true)
+  }
+
+  environment {
+    ANSIBLE_FORCE_COLOR = 'false'
+    ANSIBLE_HOST_KEY_CHECKING = 'false'
+  }
+
+  stages {
+    stage('Validate parameters') {
+      steps {
+        script {
+          [params.INVENTORY_FILE, params.PLAYBOOK_FILE].each { path ->
+            if (!(path ==~ /[A-Za-z0-9_.\/-]+/) || path.contains('..') || path.startsWith('/')) {
+              error("Unsafe relative file path: ${path}")
+            }
+          }
+          if (!(params.LIMIT ==~ /[A-Za-z0-9_.,:&!\-]+/)) {
+            error('LIMIT contains unsupported characters.')
+          }
+          if (params.TAGS && !(params.TAGS ==~ /[A-Za-z0-9_,\-]+/)) {
+            error('TAGS must be a comma-separated list of tag names.')
+          }
+        }
+      }
+    }
+
+    stage('Run Ansible') {
+      steps {
+        withCredentials([
+          sshUserPrivateKey(credentialsId: params.SSH_CREDENTIALS_ID, keyFileVariable: 'ANSIBLE_PRIVATE_KEY_FILE', usernameVariable: 'ANSIBLE_REMOTE_USER'),
+          string(credentialsId: params.JENKINS_ADMIN_PASSWORD_ID, variable: 'JENKINS_ADMIN_PASSWORD')
+        ]) {
+          dir('ansible') {
+            script {
+              withEnv([
+                "PIPELINE_INVENTORY=${params.INVENTORY_FILE}",
+                "PIPELINE_PLAYBOOK=${params.PLAYBOOK_FILE}",
+                "PIPELINE_LIMIT=${params.LIMIT}",
+                "PIPELINE_TAGS=${params.TAGS.trim()}"
+              ]) {
+                if (params.ANSIBLE_ACTION == 'syntax-check') {
+                  sh '''ansible-playbook -i "$PIPELINE_INVENTORY" --limit "$PIPELINE_LIMIT" --private-key "$ANSIBLE_PRIVATE_KEY_FILE" --user "$ANSIBLE_REMOTE_USER" ${PIPELINE_TAGS:+--tags "$PIPELINE_TAGS"} --syntax-check "$PIPELINE_PLAYBOOK"'''
+                } else if (params.ANSIBLE_ACTION == 'check') {
+                  sh '''ansible-playbook -i "$PIPELINE_INVENTORY" --limit "$PIPELINE_LIMIT" --private-key "$ANSIBLE_PRIVATE_KEY_FILE" --user "$ANSIBLE_REMOTE_USER" ${PIPELINE_TAGS:+--tags "$PIPELINE_TAGS"} --check --diff "$PIPELINE_PLAYBOOK"'''
+                } else {
+                  sh '''ansible-playbook -i "$PIPELINE_INVENTORY" --limit "$PIPELINE_LIMIT" --private-key "$ANSIBLE_PRIVATE_KEY_FILE" --user "$ANSIBLE_REMOTE_USER" ${PIPELINE_TAGS:+--tags "$PIPELINE_TAGS"} "$PIPELINE_PLAYBOOK"'''
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      deleteDir()
+    }
+  }
+}
