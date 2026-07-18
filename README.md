@@ -21,6 +21,7 @@ This project creates a Jenkins controller on AWS in its own VPC, then configures
 - kubectl
 - Helm
 - Terraform CLI
+- Trivy container vulnerability scanner
 - Ansible
 - Jenkins DevOps plugins for Pipeline, Git, GitHub, GitLab, Docker, AWS, Kubernetes, Terraform, Ansible, credentials, security, observability, and build utilities
 
