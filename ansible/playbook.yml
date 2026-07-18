@@ -111,6 +111,31 @@
           deb [arch={{ deb_arch.stdout }} signed-by=/etc/apt/keyrings/hashicorp.gpg] https://apt.releases.hashicorp.com {{ ansible_distribution_release }} main
       register: hashicorp_repo
 
+    - name: Download Aqua Security Trivy GPG key
+      ansible.builtin.get_url:
+        url: https://aquasecurity.github.io/trivy-repo/deb/public.key
+        dest: /tmp/trivy.asc
+        mode: "0644"
+      register: trivy_gpg_key
+
+    - name: Check Trivy keyring
+      ansible.builtin.stat:
+        path: /etc/apt/keyrings/trivy.gpg
+      register: trivy_keyring
+
+    - name: Install Trivy GPG keyring
+      ansible.builtin.command:
+        cmd: gpg --dearmor --yes -o /etc/apt/keyrings/trivy.gpg /tmp/trivy.asc
+      when: trivy_gpg_key.changed or not trivy_keyring.stat.exists
+
+    - name: Configure Aqua Security Trivy APT repository
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/trivy.list
+        mode: "0644"
+        content: |
+          deb [signed-by=/etc/apt/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main
+      register: trivy_repo
+
     - name: Remove Helm APT repository and keyring remnants
       ansible.builtin.file:
         path: "{{ item }}"
@@ -125,7 +150,7 @@
         update_cache: true
         cache_valid_time: 0
 
-    - name: Install Docker, Terraform, Ansible, and Java packages
+    - name: Install Docker, Terraform, Trivy, Ansible, and Java packages
       ansible.builtin.apt:
         name:
           - ansible
@@ -136,6 +161,7 @@
           - docker-compose-plugin
           - openjdk-21-jre
           - terraform
+          - trivy
         state: present
         force_apt_get: true
         lock_timeout: 300
@@ -143,6 +169,12 @@
       retries: 5
       delay: 30
       until: core_package_install is succeeded
+
+    - name: Verify Trivy installation
+      ansible.builtin.command:
+        cmd: trivy --version
+      register: trivy_version
+      changed_when: false
 
     - name: Remove Jenkins Debian package if present
       ansible.builtin.apt:
@@ -533,7 +565,7 @@
         msg:
           - "Jenkins URL: {{ jenkins_public_url | default(jenkins_public_url_default) }}"
           - "Jenkins admin user: {{ jenkins_admin_user }}"
-          - "Installed tooling: Docker, AWS CLI, kubectl, Helm, Terraform, Ansible"
+          - "Installed tooling: Docker, Trivy ({{ trivy_version.stdout | trim }}), AWS CLI, kubectl, Helm, Terraform, Ansible"
 
   handlers:
     - name: Restart Jenkins
