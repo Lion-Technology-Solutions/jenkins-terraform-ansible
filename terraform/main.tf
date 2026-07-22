@@ -109,7 +109,7 @@ resource "aws_security_group" "jenkins" {
 }
 
 resource "aws_iam_role" "jenkins" {
-  name = "${local.name_prefix}-ec2-role"
+  name = "${local.name_prefix}-ec2-instance-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -125,7 +125,7 @@ resource "aws_iam_role" "jenkins" {
   })
 
   tags = {
-    Name = "${local.name_prefix}-ec2-role"
+    Name = "${local.name_prefix}-ec2-instance-role"
   }
 }
 
