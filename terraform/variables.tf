@@ -13,7 +13,7 @@ variable "environment" {
 variable "aws_region" {
   description = "AWS region where Jenkins will be deployed."
   type        = string
-  default     = "us-east-1"
+  default     = "us-east-2"
 }
 
 variable "key_name" {
